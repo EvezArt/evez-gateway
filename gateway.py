@@ -160,13 +160,78 @@ def get_metrics():
 
 # ─── Service Proxy ────────────────────────────────────────────
 
-@app.api_route("/api/v1/status", methods=["GET"])
-async def service_status_route():
-    return await service_status()
+# ─── Service Status (registered as route above) ──
 
-@app.api_route("/api/v1/metrics", methods=["GET"])
-async def metrics_route():
-    return get_metrics()
+@app.get("/api/v1/status")
+async def service_status():
+    """Health check all backend services."""
+    results = {}
+    async with httpx.AsyncClient(timeout=5) as client:
+        for name, svc in SERVICES.items():
+            try:
+                resp = await client.get(f"http://127.0.0.1:{svc['port']}/health")
+                results[name] = {
+                    "status": "online",
+                    "code": resp.status_code,
+                    "port": svc["port"],
+                    "name": svc["name"],
+                    "version": svc.get("version", "?"),
+                }
+            except Exception:
+                results[name] = {
+                    "status": "offline",
+                    "port": svc["port"],
+                    "name": svc["name"],
+                }
+    
+    online = sum(1 for r in results.values() if r["status"] == "online")
+    return {
+        "total": len(SERVICES),
+        "online": online,
+        "offline": len(SERVICES) - online,
+        "services": results,
+        "gateway_uptime_s": round(time.time() - metrics["start_time"], 1),
+    }
+
+# ─── WebSocket Feed ───────────────────────────────────────────
+
+@app.websocket("/ws")
+async def websocket_feed(ws: WebSocket):
+    """Real-time feed of all API requests, gap alerts, speedrun results."""
+    await ws_manager.connect(ws)
+    try:
+        while True:
+            data = await ws.receive_text()
+            # Client can send commands
+            msg = json.loads(data) if data else {}
+            if msg.get("type") == "ping":
+                await ws.send_json({"type": "pong", "ts": int(time.time())})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(ws)
+    except Exception:
+        ws_manager.disconnect(ws)
+
+# ─── Dashboard ────────────────────────────────────────────────
+
+# ─── Live Demo Endpoint ──────────────────────────────────────
+
+@app.get("/api/v1/live-demo")
+async def live_demo():
+    """Aggregate live data from all services for the demo page."""
+    import httpx
+    results = {}
+    async with httpx.AsyncClient(timeout=10) as client:
+        for name, port, ep in [
+            ("disclosure", 8087, "/api/v1/demo"),
+            ("igre", 8099, "/api/v1/integration/disclosure"),
+            ("spectral", 8103, "/api/v1/correlate"),
+            ("funding", 8101, "/api/v1/pipeline"),
+        ]:
+            try:
+                resp = await client.get(f"http://127.0.0.1:{port}{ep}")
+                results[name] = resp.json()
+            except: results[name] = {"offline": True}
+    return {"timestamp": int(time.time()), "data": results}
 
 @app.api_route("/api/{service}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_service(service: str, path: str, request: Request):
@@ -231,59 +296,6 @@ async def proxy_service(service: str, path: str, request: Request):
     except Exception as e:
         metrics["errors"] += 1
         raise HTTPException(status_code=500, detail=str(e))
-
-# ─── Service Status (registered as route above) ──
-
-@app.get("/api/v1/status")
-async def service_status():
-    """Health check all backend services."""
-    results = {}
-    async with httpx.AsyncClient(timeout=5) as client:
-        for name, svc in SERVICES.items():
-            try:
-                resp = await client.get(f"http://127.0.0.1:{svc['port']}/health")
-                results[name] = {
-                    "status": "online",
-                    "code": resp.status_code,
-                    "port": svc["port"],
-                    "name": svc["name"],
-                    "version": svc.get("version", "?"),
-                }
-            except Exception:
-                results[name] = {
-                    "status": "offline",
-                    "port": svc["port"],
-                    "name": svc["name"],
-                }
-    
-    online = sum(1 for r in results.values() if r["status"] == "online")
-    return {
-        "total": len(SERVICES),
-        "online": online,
-        "offline": len(SERVICES) - online,
-        "services": results,
-        "gateway_uptime_s": round(time.time() - metrics["start_time"], 1),
-    }
-
-# ─── WebSocket Feed ───────────────────────────────────────────
-
-@app.websocket("/ws")
-async def websocket_feed(ws: WebSocket):
-    """Real-time feed of all API requests, gap alerts, speedrun results."""
-    await ws_manager.connect(ws)
-    try:
-        while True:
-            data = await ws.receive_text()
-            # Client can send commands
-            msg = json.loads(data) if data else {}
-            if msg.get("type") == "ping":
-                await ws.send_json({"type": "pong", "ts": int(time.time())})
-    except WebSocketDisconnect:
-        ws_manager.disconnect(ws)
-    except Exception:
-        ws_manager.disconnect(ws)
-
-# ─── Dashboard ────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
