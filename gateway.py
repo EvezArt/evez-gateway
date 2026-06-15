@@ -6,6 +6,7 @@ This replaces 13 separate uvicorn processes with 1.
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 import httpx
 import json
 import time
@@ -21,6 +22,9 @@ app = FastAPI(
     description="Single API gateway for the entire EVEZ-OS ecosystem — 16 services, 120+ endpoints, eigenforensics, genome extraction, speedrun projecteering.",
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Mount static files
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")), name="static")
 
 # ─── Service Registry ────────────────────────────────────────
 
@@ -397,6 +401,13 @@ async def dashboard():
 </body>
 </html>
 """
+
+@app.get("/demo", response_class=HTMLResponse)
+async def demo_page():
+    """Public demo page for investors and press."""
+    demo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "demo.html")
+    with open(demo_path) as f:
+        return f.read()
 
 if __name__ == "__main__":
     import uvicorn
