@@ -43,6 +43,7 @@ SERVICES = {
     "search":        {"port": 8100, "name": "AI Search Gateway",     "version": "1.0.0"},
     "funding":       {"port": 8101, "name": "Funding Monitor",       "version": "1.0.0"},
     "spectral":      {"port": 8103, "name": "Spectral Correlation",   "version": "1.0.0"},
+    "intelligence":  {"port": 8122, "name": "Intelligence Mesh",      "version": "1.0.0"},
 }
 
 # ─── Metrics ──────────────────────────────────────────────────
